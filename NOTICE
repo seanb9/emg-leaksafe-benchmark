@@ -1,0 +1,17 @@
+This repository reproduces the evaluation pipeline, models, and reported results of
+the paper "A Leak-Safe Within-User Benchmark for Compact Surface-EMG Grasp Decoding,
+with a Causal Sequence-Reasoning Decoder" (Barrett & Hartley, ReAble Labs, 2026).
+
+It is a research reproducibility artifact. It does NOT include, and ReAble Labs does
+not release here:
+
+  - trained model weights or checkpoints (results are reproduced by re-running the
+    pipeline on public data);
+  - any ReAble Labs hardware designs, PCB layouts, schematics, bills of materials,
+    firmware, or mechanical/CAD assets;
+  - clinical, deployment, or product-integration code;
+  - any unpublished models or methods beyond those reported in the paper.
+
+All results are obtained from the publicly available NinaPro DB2 dataset
+(http://ninapro.hevs.ch), which is governed by its own license and terms of use.
+No human-subjects data were collected for this work.

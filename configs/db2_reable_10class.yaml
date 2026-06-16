@@ -1,0 +1,65 @@
+# ReAble v2 PRIMARY protocol — 10-class DB2, honest leak-free splits.
+# Same 10 gesture classes as EMGBench (for matched comparison) but with:
+#   - leak-safe repetition-level calibration/eval split
+#   - per-subject z-score fit on train+calibration only (never eval)
+#   - DEPLOYMENT sampling track at 250 Hz (matches ReAble ADS1299 hardware)
+# Run db2_reable_10class_2khz.yaml (override target_fs: 2000) to quantify the
+# downsampling accuracy cost on the SAME classes/splits.
+name: db2_reable_10class
+seed: 1337
+
+dataset:
+  name: ninapro_db2
+  raw_dir: ../../reable_emg_classifier/data/ninapro_db2
+  exercise: 1
+  classes: [0, 5, 6, 8, 9, 10, 13, 14, 15, 16]
+  class_names: [Rest, FingerAbduction, Fist, FingerAdduction, MidAxisSupination,
+                MidAxisPronation, WristFlexion, WristExtension, RadialDeviation, UlnarDeviation]
+  n_subjects: 40
+
+signal:
+  raw_fs: 2000
+  target_fs: 250              # DEPLOYMENT track (override to 2000 for the matched track)
+  channels: 12
+  filter: reable_bandpass     # 50 Hz notch (Q=35) + 20-120 Hz Butterworth bandpass, order 4
+  artifact_rms_uv: 500        # drop windows with RMS > 500 uV
+
+window:
+  size_ms: 256                # 64 samples @ 250 Hz (clinical latency budget)
+  stride_ms: 64               # 75% overlap (training density); see note in splits.py
+  label_policy: majority
+
+normalize:
+  method: per_subject_zscore
+  fit_on: train_cal           # LEAKAGE FIX: stats fit on train+cal windows, applied to eval
+
+split:
+  protocol: loso
+  val_n_subjects: 3
+  calibration:
+    eval_reps: [2, 4, 6]      # disjoint eval repetitions — every calibration-curve point
+    cal_reps:  [1, 3, 5]      # is scored on these same held-out reps
+    ratios:    [0.0, 0.05, 0.10, 0.20, 0.30]
+
+balance:
+  rest_class: 0
+  rest_cap_mult: 2.0          # cap Rest at 2x median movement-class count (per subject)
+
+model:
+  name: v2net
+  widths: [32, 64, 128]
+  kernel: 7
+  fc_units: 64
+  supcon: true                # SupCon pre-training (v1's highest-impact component)
+  adversarial: false          # gradient-reversal subject head (ablation toggle)
+  tta: true                   # BN-adapt + TENT at test time
+  lr: 0.0005
+  batch_size: 64
+  label_smoothing: 0.1
+  patience: 15
+  fewshot_epochs: 20
+  # muscle-demix dual-path intentionally OMITTED (decision: drop by default)
+
+dev:                          # dev-subset MPS smoke ("does it work", never headline)
+  n_subjects: 4
+  n_folds: 2

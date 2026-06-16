@@ -1,0 +1,43 @@
+# EMGBench-matched NinaPro DB2 protocol.
+# Replicates Setup/Utils/utils_NinaproDB2.py from github.com/jehanyang/emgbench
+# so our reproduced baseline is apples-to-apples with their reported numbers
+# (ResNet18 LOSO ~19.9% zero-shot, ~52.4% @20% adaptation).
+name: db2_emgbench_matched
+seed: 1337
+
+dataset:
+  name: ninapro_db2
+  raw_dir: ../../reable_emg_classifier/data/ninapro_db2
+  exercise: 1                                  # the E1 file (S{n}_E1_A1.mat)
+  # EMGBench 'partial_gesture_indices' — 10 classes, wrist/grasp task.
+  classes: [0, 5, 6, 8, 9, 10, 13, 14, 15, 16] # restimulus IDs kept (0 = Rest)
+  class_names: [Rest, FingerAbduction, Fist, FingerAdduction, MidAxisSupination,
+                MidAxisPronation, WristFlexion, WristExtension, RadialDeviation, UlnarDeviation]
+  n_subjects: 40
+
+signal:
+  raw_fs: 2000
+  target_fs: 2000            # EMGBench does NOT downsample
+  channels: 12
+  filter: emgbench_lowpass    # butter(N=1, Wn=999Hz, lowpass) only — no notch, no 20-120 bandpass
+  artifact_rms_uv: null
+
+window:
+  size_ms: 250                # 500 samples @ 2000 Hz
+  stride_ms: 250              # non-overlapping
+  label_policy: last          # window label = last restimulus sample (transition handling)
+
+normalize:
+  method: none                # EMGBench baseline path; per-subject norm is optional in their code
+
+split:
+  protocol: loso
+  val_n_subjects: 3
+  calibration:
+    eval_reps: [2, 4, 6]      # held-out repetitions for evaluation (disjoint from cal)
+    cal_reps:  [1, 3, 5]      # repetitions calibration windows are drawn from
+    ratios:    [0.0, 0.05, 0.10, 0.20, 0.30]
+
+balance:
+  rest_class: 0
+  rest_cap_mult: null         # EMGBench balances at window-selection time; keep raw here
