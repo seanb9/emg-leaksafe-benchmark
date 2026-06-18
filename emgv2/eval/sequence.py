@@ -129,6 +129,41 @@ def causal_forward_decode(emis, groups, A, pi, eps=1e-8, priors=None):
     return out
 
 
+def fixed_lag_decode(emis, groups, A, pi, lag=2, eps=1e-8, priors=None):
+    """Fixed-lag smoothing: decide window t from evidence 0..t+lag (a few windows of
+    lookahead), then emit. lag=0 is exactly causal_forward_decode (past-only);
+    lag->infinity approaches fixed-interval smoothing (the offline upper bound).
+
+    A real controller can tolerate a small, bounded decision delay (lag*stride_ms)
+    in exchange for recovering the onset/offset windows that the past-only filter
+    mislabels Rest. At window t we have the forward belief alpha_t (uses 0..t) and a
+    truncated backward pass beta over t..t+lag (uses t+1..t+lag); their sum is the
+    smoothed log-posterior gamma_t(i) ∝ P(state_t=i | obs_0..t+lag). Causal up to a
+    fixed `lag`-window delay — leak-free, deployable as a streaming buffer."""
+    emis = np.asarray(emis, dtype=np.float64)
+    groups = np.asarray(groups)
+    logA = np.log(A + eps); logpi = np.log(pi + eps); logE = _log_emissions(emis, priors, eps)
+    out = np.zeros(len(emis), dtype=np.int64)
+    for g in np.unique(groups):
+        idx = np.flatnonzero(groups == g)               # temporal order
+        L = len(idx)
+        # forward beliefs alpha[t] over the whole segment (past-only at each t)
+        alpha = np.empty((L, logA.shape[0]))
+        a = logpi + logE[idx[0]]; alpha[0] = a
+        for t in range(1, L):
+            a = logE[idx[t]] + _logsumexp(a[:, None] + logA, axis=0)
+            a -= a.max(); alpha[t] = a
+        # truncated backward over a `lag`-window horizon, then combine
+        for t in range(L):
+            hi = min(t + lag, L - 1)
+            beta = np.zeros(logA.shape[0])              # log 1 at the horizon
+            for s in range(hi, t, -1):
+                beta = _logsumexp(logA + (logE[idx[s]] + beta)[None, :], axis=1)
+                beta -= beta.max()
+            out[idx[t]] = int((alpha[t] + beta).argmax())
+    return out
+
+
 def viterbi_decode(emis, groups, A, pi, eps=1e-8, priors=None):
     """Most-likely whole-sequence path per segment (offline upper bound)."""
     emis = np.asarray(emis, dtype=np.float64)

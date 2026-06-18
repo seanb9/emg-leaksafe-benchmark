@@ -61,6 +61,7 @@ CM = np.array([
 GATE = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
 GRASP_ACC = [82.9, 84.1, 84.7, 85.2, 85.7, 86.0, 86.7]
 GATE_FALSE = [17.7, 11.2, 7.7, 5.8, 4.4, 3.2, 2.2]
+GATE_COV = [85, 81, 78, 76, 73, 71, 66]   # movement coverage (% of move windows acted)
 
 
 def _save(fig, name):
@@ -132,16 +133,51 @@ def fig_confusion():
 
 
 def fig_operating_point():
-    fig, ax = plt.subplots(figsize=(5.0, 3.6))
-    ax.plot(GATE_FALSE, GRASP_ACC, "o-", lw=2, color="#36c")
+    from matplotlib.ticker import ScalarFormatter
+    fig, ax = plt.subplots(figsize=(5.8, 4.0))
+    # log-x spreads the bunched low-false-activation operating points so labels
+    # don't collide; consistent colour-blind-safe palette with the other figures.
+    # Primary axis: grasp accuracy on acted windows. Secondary axis: movement
+    # coverage --- which FALLS as the gate tightens, so the recommended point is not
+    # free: lower false-activation is bought with lower coverage.
+    l1, = ax.plot(GATE_FALSE, GRASP_ACC, "-o", lw=2.2, color=C_EXEC, ms=6, zorder=3,
+                  label="grasp acc. on acted windows (left)")
     for x, y, g in zip(GATE_FALSE, GRASP_ACC, GATE):
-        ax.annotate(f"{g}", (x, y), fontsize=8, xytext=(3, -8),
-                    textcoords="offset points", color="#666")
-    ax.axvline(2, color="#c33", ls=":", lw=1)
-    ax.text(2.2, 82.4, "≈2% clinical bar", color="#c33", fontsize=9, rotation=90, va="bottom")
-    ax.set_xlabel("Rest false-activation (%)")
-    ax.set_ylabel("Grasp accuracy on acted windows (%)")
+        ax.annotate(f"{g}", (x, y), fontsize=8, xytext=(0, 8), ha="center",
+                    va="bottom", textcoords="offset points", color="#555")
+    ax2 = ax.twinx()
+    l2, = ax2.plot(GATE_FALSE, GATE_COV, "--s", lw=2.0, color=C_WEAK, ms=5, zorder=3,
+                   label="movement coverage (right)")
+    ax2.set_ylabel("Movement coverage (%)", color=C_WEAK)
+    ax2.tick_params(axis="y", labelcolor=C_WEAK)
+    ax2.set_ylim(60, 90)
+    # recommended operating point (gate 0.9): clears the clinical bar, but at the
+    # lowest coverage; ring both curves so the trade-off is explicit
+    rx = GATE_FALSE[-1]
+    ax.scatter([rx], [GRASP_ACC[-1]], s=170, facecolors="none", edgecolors="#333",
+               linewidths=1.8, zorder=4)
+    ax2.scatter([rx], [GATE_COV[-1]], s=170, facecolors="none", edgecolors="#333",
+                linewidths=1.8, zorder=4)
+    # short note in the open wedge BETWEEN the two curves on the right side, so it
+    # crosses neither line; the caption explains that the rings mark the recommended gate
+    ax.annotate("recommended: gate 0.9\n(66% coverage)", (19, 81.4),
+                fontsize=8, color="#333", ha="right", va="center")
+    ax.axvline(2, color="#c33", ls=":", lw=1.3)
+    ax.text(1.93, 84.0, "2% clinical bar", color="#c33", fontsize=8.5,
+            rotation=90, ha="right", va="center")
+    ax.set_xscale("log")
+    ax.set_xticks([2, 3, 5, 8, 12, 18])
+    ax.xaxis.set_major_formatter(ScalarFormatter())
+    ax.minorticks_off()
+    ax.set_xlim(1.7, 21)
+    ax.set_xlabel("Rest false-activation (%, log scale)")
+    ax.set_ylim(80, 90)
+    ax.set_ylabel("Grasp accuracy on acted windows (%)", color=C_EXEC)
+    ax.tick_params(axis="y", labelcolor=C_EXEC)
     ax.set_title("Operating points (gate threshold labelled)", fontsize=11)
+    # No floating legend: the y-axes are colour-coded to the curves (blue left = grasp
+    # accuracy, orange right = movement coverage), which identifies each line without
+    # overlapping the data the way the old lower-right legend did.
     _save(fig, "fig4_operating_point")
 
 

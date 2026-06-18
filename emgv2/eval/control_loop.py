@@ -140,6 +140,79 @@ def hysteresis_decode(
     return out
 
 
+def cusum_onset_decode(
+    active_score: np.ndarray,
+    grasp_pred: np.ndarray,
+    group: np.ndarray,
+    rest_idx: int = 0,
+    *,
+    drift: float = 0.0,
+    h: float = 2.0,
+    exit_gate: float = 0.35,
+    off_frames: int = 4,
+    grasp_vote: int = 5,
+    eps: float = 1e-6,
+) -> np.ndarray:
+    """One-sided CUSUM change-detector for FAST grasp onset (drop-in for
+    hysteresis_decode). Minimises expected detection latency for a given
+    false-alarm rate (Page 1954; Lorden 1971), which is exactly the
+    "shorten onset without raising false activations" objective.
+
+    The fixed debounce (``on_frames`` consecutive active windows) makes a clear,
+    high-evidence onset wait just as long as an ambiguous one. CUSUM instead
+    accumulates the per-window activation log-likelihood-ratio
+    ``llr_t = logit(P_active_t)`` into a running sum
+        ``S_t = max(0, S_{t-1} + llr_t - drift)``
+    and commits the instant ``S_t >= h``. Under true rest, ``P_active < 0.5`` so
+    ``llr_t < 0`` and ``S`` decays to 0 (few false alarms); at a real onset the
+    LLR is strongly positive and ``S`` crosses ``h`` in as little as ONE window
+    when the evidence is strong, while weak onsets accumulate over a few windows.
+    ``drift`` is the slack (reference value) and ``h`` the alarm threshold — the
+    two knobs trading latency against false activation. Calibrate them per user.
+
+    The decoder DECOUPLES the gate from the identity. CUSUM only decides WHEN to
+    leave Rest (fast). WHICH grasp is a separate trailing majority vote over the
+    last ``grasp_vote`` windows, recomputed every active window — so an early,
+    weakly-supported onset commits fast but its grasp identity converges to the
+    correct grip within a few windows as evidence arrives, instead of locking in
+    the first guess. This is what lets latency drop without an identity-accuracy
+    cost. It HOLDS active until ``P_active < exit_gate`` for ``off_frames``
+    consecutive windows (hysteretic release), then resets. Causal: every decision
+    uses only past windows."""
+    active_score = np.asarray(active_score, dtype=np.float64)
+    grasp_pred = np.asarray(grasp_pred)
+    group = np.asarray(group)
+    a = np.clip(active_score, eps, 1.0 - eps)
+    llr = np.log(a) - np.log(1.0 - a)                 # logit = activation LLR
+    out = np.full(len(active_score), rest_idx, dtype=np.int64)
+    for g in np.unique(group):
+        idx = np.flatnonzero(group == g)              # temporal order
+        S = 0.0
+        votes: list[int] = []                         # recent grasp predictions
+        active = False
+        off = 0
+        for t in idx:
+            votes.append(int(grasp_pred[t]))
+            votes = votes[-grasp_vote:]
+            if not active:
+                inc = llr[t] - drift
+                S = max(0.0, S + inc)
+                if S >= h:                             # CUSUM alarm -> onset detected
+                    active = True; off = 0
+                    out[t] = int(np.bincount(votes).argmax())   # identity from the ramp
+                else:
+                    out[t] = rest_idx
+            else:                                      # holding active
+                out[t] = int(np.bincount(votes).argmax())       # identity tracks evidence
+                if active_score[t] < exit_gate:
+                    off += 1
+                    if off >= off_frames:
+                        active = False; S = 0.0; off = 0
+                else:
+                    off = 0
+    return out
+
+
 def confidence_mask(probs: np.ndarray, threshold: float) -> np.ndarray:
     """Bool mask: True where the device acts (max class prob >= threshold)."""
     probs = np.asarray(probs)

@@ -1,0 +1,93 @@
+# CLINICAL within-user — the REAL ReAble hand grip set (finger grasps, no wrist).
+# Power, Pinch, Tripod, Lateral, Point, Hook + Rest, from NinaPro DB2 Exercise 2
+# (the 23-grasp file). This is what the ReAble hand actually does.
+name: db2_nb_s2024
+seed: 2024
+
+dataset:
+  name: ninapro_db2
+  raw_dir: /Users/sean/Desktop/ReAble Matlab/reable_emg_classifier/data/ninapro_db2
+  exercise: 2                      # E2 = the grasps file (S{n}_E2_A1.mat)
+  classes: [0, 22, 32, 30, 34, 21, 20]   # restimulus IDs (0 = Rest)
+  class_names: [Rest, Power, Pinch, Tripod, Lateral, Point, Hook]
+  #   Power=MediumWrap(22) Pinch=TipPinch(32) Tripod=TripodGrasp(30)
+  #   Lateral=LateralGrasp(34) Point=IndexFingerExt(21) Hook=FixedHook(20)
+  n_subjects: 40
+
+signal:
+  raw_fs: 2000
+  target_fs: 250
+  channels: 12
+  filter: reable_bandpass
+  artifact_rms_uv: 500
+  # per-channel activation features (raw + RMS + waveform-length envelopes) -> 12*3=36
+  # input channels. The spatial muscle-activation signature that separates grasps.
+  feature_channels: [rms, wl]      # proven 36ch base (Riemann uses raw EMG, independent)
+  feature_win: 16
+
+window:
+  size_ms: 256
+  stride_ms: 64
+  label_policy: majority
+
+normalize:
+  method: per_subject_zscore
+  fit_on: calibration
+
+model:
+  name: v2net
+  size: S
+  supcon: true
+  adversarial: false
+  tta: true
+  ssl_pretrain: true               # self-supervised masked pretrain — brain learns move structure first
+  ssl_epochs: 25
+  ssl_mask_frac: 0.4
+
+within_user:
+  cal_reps_sweep: [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]]
+  test_reps: [6]
+  cal_head_only: false             # full per-user fine-tune (personalize features)
+  cal_lr: 0.0003
+  two_stage: true                  # HYBRID: dedicated rest-detector + grasp classifier
+  temporal: false                  # GRU-on-frozen-embeddings underperformed (lost per-user personalization)
+  temporal_hidden: 64
+  temporal_pop_epochs: 20
+  hmm: true                        # SEQUENCE LOGIC: HMM transition reasoning over CNN evidence (causal)
+  hmm_hold: 0.97                   #   self-transition 'stickiness' (sweep found ~0.97-0.99 best)
+  phase_brain: false               # NOVEL: phase-aware (grasp x onset/hold/release) predictive decoder
+  phase_n: 3                       #   phases per grasp: onset, hold, release
+  phase_hold: 0.92                 #   state stickiness in the grammar
+  phase_rest_hold: 0.99            #   SAFETY dial: reluctance to leave rest (crushes false-act)
+  phase_onset_frac: 0.25           #   first 25% of a segment = onset
+  phase_release_frac: 0.25         #   last 25% = release
+  phase_pop_epochs: 25
+  phase_hidden: 128
+  proto_blend: 0.4                 # blend linear grasp head with nearest-class-mean (few-shot robust); 0 = off
+  tta_views: 8                     # test-time augmentation (per-window denoise)
+  grasp_classifier: cnn            # cnn | riemann | fuse (Riemannian tangent-space cov + LDA)
+  riemann_shrink: 0.1
+  cal_augment: true                # gentle aug during per-user calibration (intra-session variability)
+  pretrain_subjects: [21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40]
+  test_subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+control_loop:
+  vote_window: 15                  # legacy symmetric majority vote (kept for comparison)
+  reject_threshold: 0.7
+  gate_threshold: 0.5              # two-stage: act when P(active) >= this
+  rest_class_index: 0
+
+decoder:
+  # Asymmetric hysteresis state machine — the clinical decoder. Hard to START a
+  # grasp (debounce kills false activations), easy to KEEP one (hysteresis recovers
+  # the low-activation onset/offset windows the flat model loses to Rest). This is
+  # what closes the gap to 90%. Tune from the HYSTERESIS DECODER SWEEP it prints.
+  type: hysteresis
+  enter_gate: 0.6                  # P(active) needed to count a window as 'active'
+  exit_gate: 0.35                  # fall back to Rest only below this (hysteresis band)
+  on_frames: 3                     # consecutive active+same-grasp windows to commit
+  off_frames: 4                    # consecutive rest windows to release the grasp
+  switch_frames: 3                 # consecutive different-grasp windows to switch grip
+
+balance:
+  rest_cap_mult: 1.5
