@@ -63,6 +63,49 @@ python scripts/make_paper_figures.py
 python scripts/run_synthetic.py
 ```
 
+### Version 2 experiments
+
+The v2 revision adds cross-session, acquisition-bandwidth, amputee, and online
+studies, plus strengthened statistics. Each script's header documents its exact
+flags; DB3/DB6/DB7 are downloaded from <http://ninapro.hevs.ch> like DB2.
+
+```bash
+# Cross-session re-donning (NinaPro DB6, 10 subjects, 5 days): collapse,
+# recovery, day-separation curve, and the recalibration-budget curve.
+python scripts/db6_crosssession.py --root <ninapro_db6_dir>
+python scripts/db6_daycurve.py
+python scripts/db6_recal_budget.py
+
+# Acquisition bandwidth (20-450 Hz vs 20-120 Hz) and the iso-sampling-rate control.
+python scripts/run_within_user.py configs/exp_wideband_full.yaml --reuse-base
+python scripts/run_within_user.py configs/exp_nb1k.yaml --reuse-base
+
+# Multi-seed robustness (seeds 7, 2024) and pooled statistics
+# (effect sizes, 95% CIs, subject win-counts).
+python scripts/run_within_user.py configs/exp_nb_s7.yaml --reuse-base
+python scripts/run_within_user.py configs/exp_wb_s7.yaml --reuse-base
+python scripts/tier2_stats.py
+python scripts/multiseed_analysis.py
+
+# Window-overlap leakage quantification (leak-safe vs leaky split).
+python scripts/leakage_quant.py configs/db2_reable_hand.yaml --reuse-base
+
+# Learned temporal-convolutional baseline (narrowband and wideband).
+python scripts/tcn_baseline.py configs/db2_reable_hand.yaml
+python scripts/tcn_baseline.py configs/exp_wideband_full.yaml
+
+# Amputee benchmark (NinaPro DB3 + DB7, 12 trans-radial subjects).
+python scripts/run_within_user.py configs/db3_amputee_xfer.yaml
+
+# Online streaming validation, pseudo-online control metrics, onset latency,
+# leave-one-repetition-out CV, and the v2 figures.
+python scripts/streaming_all.py configs/db2_reable_hand.yaml --reuse-base
+python scripts/clinical_metrics.py configs/db2_reable_hand.yaml --reuse-base
+python scripts/onset_experiment.py configs/exp_wideband_full.yaml --reuse-base
+python scripts/loro_cv.py configs/db2_reable_hand.yaml --reuse-base
+python scripts/make_v2_figures.py
+```
+
 All runs use a fixed seed (1337). Per-fold LOSO results are checkpointed and the run
 is resumable.
 
